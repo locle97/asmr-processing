@@ -1,4 +1,4 @@
-"""asmr process <file> [--preset default|soft|loud] [--out DIR] [--bits float32|24]"""
+"""asmr process <file> [--preset default|soft|loud] [--out DIR] [--bits float32|24] [--no-llm]"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import os
 import sys
 import time
 
-from . import audio_io, report
+from . import audio_io, explain, report, waveform
 from .pipeline import process
 from .rules import Overrides
 
@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     pp.add_argument("--loudness", type=float, default=0.0, help="Lệch mục tiêu LUFS, −6..+3")
     pp.add_argument("--denoise", type=float, default=None, help="Mức giảm ồn 0..12 dB")
     pp.add_argument("--floor", type=float, default=None, help="Mức hạ nền tối đa 0..12 dB")
+    pp.add_argument("--no-llm", action="store_true", help="Không gọi Claude, dùng câu giải thích mẫu")
     a = ap.parse_args(argv)
 
     try:
@@ -58,7 +59,14 @@ def main(argv: list[str] | None = None) -> int:
     wav = os.path.join(out_dir, f"{stem}_asmr.wav")
     audio_io.write_wav(wav, res.audio, info.sr, bits)
     rep = report.build(res, os.path.basename(a.input), _sha256(a.input), a.preset)
-    rep["output"] = {"wav": os.path.basename(wav), "bits": bits}
+    png = os.path.join(out_dir, f"{stem}_asmr.png")
+    waveform.render_png(x, res.audio, info.sr, png, title=os.path.basename(a.input))
+    peaks = os.path.join(out_dir, f"{stem}_asmr_peaks.json")
+    with open(peaks, "w", encoding="utf-8") as f:
+        json.dump({"before": waveform.peaks(x, info.sr), "after": waveform.peaks(res.audio, info.sr)}, f)
+    rep["output"] = {"wav": os.path.basename(wav), "bits": bits, "waveform_png": os.path.basename(png),
+                     "peaks_json": os.path.basename(peaks)}
+    rep["explanation"] = explain.explain(rep, use_llm=not a.no_llm)
     rep["elapsed_s"] = round(time.perf_counter() - t0, 2)
     with open(os.path.join(out_dir, f"{stem}_asmr.json"), "w", encoding="utf-8") as f:
         json.dump(rep, f, ensure_ascii=False, indent=2)
@@ -67,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
         print("Cảnh báo:", ", ".join(rep["warnings"]))
     for c in rep["checks"]:
         print(f"  {'ĐẠT ' if c['pass'] else 'CHƯA'}  {LABEL[c['key']]:<14} {c['value']:>8.2f}   mục tiêu {c['target']}")
+    src = "Claude" if rep["explanation"]["source"] == "llm" else "câu mẫu"
+    print(f"Giải thích ({src}): {rep['explanation']['text']}")
     print(f"Xong trong {rep['elapsed_s']} s → {wav}")
     return 0 if rep["all_pass"] else 1
 
