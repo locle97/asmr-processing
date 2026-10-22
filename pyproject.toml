@@ -8,6 +8,8 @@ dependencies = [
   "scipy>=1.13",
   "numba>=0.60",
   "soundfile>=0.12",
+  "matplotlib>=3.8",
+  "anthropic>=2.0",
 ]
 
 [project.optional-dependencies]
