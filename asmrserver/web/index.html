@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ASMR Auto Master</title>
+<link rel="stylesheet" href="/ui/app.css">
+</head>
+<body>
+<header class="top">
+  <h1>ASMR Auto Master</h1>
+  <p class="sub">Thả file, nghe thử, tải về. Phần còn lại app tự làm.</p>
+</header>
+
+<main>
+  <!-- Màn 1: thả file -->
+  <section id="drop-section" class="card">
+    <label id="dropzone" class="dropzone" for="file-input" tabindex="0">
+      <input id="file-input" type="file" accept=".wav,.flac,.mp3,.m4a,audio/*" hidden>
+      <strong>Kéo thả file âm thanh vào đây</strong>
+      <span>hoặc bấm để chọn file</span>
+      <small>WAV, FLAC, MP3, M4A · 5 giây đến 10 phút · tối đa 500 MB</small>
+    </label>
+    <div id="file-chip" class="file-chip" hidden>
+      <span id="file-name" class="file-name"></span>
+      <button id="new-file" type="button" class="link">Chọn file khác</button>
+    </div>
+    <div id="upload-bar" class="bar" hidden><div></div></div>
+    <p id="drop-error" class="error" role="alert" hidden></p>
+  </section>
+
+  <!-- Màn 2: phân tích và xử lý -->
+  <section id="analysis-section" class="card" hidden>
+    <h2>Phân tích</h2>
+    <div class="stats">
+      <div class="stat"><span class="label">Âm nền</span><b id="stat-noise">…</b><small>tiếng xì khi không tô</small></div>
+      <div class="stat"><span class="label">Tiếng tô bút</span><b id="stat-action">…</b><small>lúc to nhất</small></div>
+      <div class="stat"><span class="label">Click to nhất</span><b id="stat-click">…</b><small id="stat-click-count">bật nắp, gõ bút</small></div>
+    </div>
+    <ul id="warnings" class="warnings"></ul>
+
+    <fieldset class="presets" id="presets">
+      <legend>Kiểu xử lý</legend>
+      <label><input type="radio" name="preset" value="default" checked> ASMR tô màu</label>
+      <label><input type="radio" name="preset" value="soft"> Êm hơn</label>
+      <label><input type="radio" name="preset" value="loud"> To hơn</label>
+    </fieldset>
+
+    <div id="progress" class="progress" hidden>
+      <div class="bar"><div id="progress-fill"></div></div>
+      <span id="progress-label">Đang chờ…</span>
+    </div>
+    <p id="job-error" class="error" role="alert" hidden></p>
+  </section>
+
+  <!-- Màn 3: nghe thử và tải về -->
+  <section id="result-section" class="card" hidden>
+    <h2>Nghe thử</h2>
+    <div class="player">
+      <button id="play" type="button" class="play" aria-label="Phát">▶</button>
+      <div class="ab" role="group" aria-label="Chọn bản để nghe">
+        <button id="btn-a" type="button" data-v="orig">A · Gốc</button>
+        <button id="btn-b" type="button" data-v="proc" class="on">B · Đã xử lý</button>
+      </div>
+      <span id="time" class="time">0:00 / 0:00</span>
+    </div>
+    <p class="hint">Phím Space để phát/dừng, A và B để chuyển bản. Bản gốc đã được tăng cho to ngang bản xử lý.</p>
+    <div class="waves">
+      <div class="wave" data-v="orig"><span>Trước</span><canvas id="wave-orig"></canvas></div>
+      <div class="wave on" data-v="proc"><span>Sau</span><canvas id="wave-proc"></canvas></div>
+    </div>
+    <audio id="audio-orig" preload="auto"></audio>
+    <audio id="audio-proc" preload="auto"></audio>
+
+    <p id="explanation" class="explanation"></p>
+
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Chỉ số</th><th>Trước</th><th>Sau</th><th>Mục tiêu</th><th></th></tr></thead>
+        <tbody id="metrics"></tbody>
+      </table>
+    </div>
+
+    <h2>Chỉnh nhanh</h2>
+    <div class="sliders">
+      <label class="slider">
+        <span>Độ to <output id="out-loudness">0 LU</output></span>
+        <input id="sl-loudness" type="range" min="-6" max="3" step="1" value="0">
+        <small>Kéo trái cho nhỏ và êm hơn, kéo phải cho to hơn.</small>
+      </label>
+      <label class="slider">
+        <span>Giảm ồn <output id="out-denoise">tự động</output></span>
+        <input id="sl-denoise" type="range" min="0" max="12" step="2" value="10">
+        <small>Cao quá có thể làm tiếng bút bị méo.</small>
+      </label>
+      <label class="slider">
+        <span>Âm nền <output id="out-floor">tự động</output></span>
+        <input id="sl-floor" type="range" min="0" max="12" step="1" value="9">
+        <small>Hạ tiếng phòng giữa các nét bút.</small>
+      </label>
+    </div>
+    <button id="reset" type="button" class="link">Về thông số tự động</button>
+    <p id="rerender" class="rerender" hidden>Đang xử lý lại…</p>
+
+    <h2>Tải về</h2>
+    <div class="downloads">
+      <a id="dl-wav" class="btn primary" download>Tải WAV</a>
+      <a id="dl-json" class="btn" download>Báo cáo JSON</a>
+      <a id="dl-png" class="btn" download>Ảnh waveform</a>
+    </div>
+  </section>
+</main>
+
+<script src="/ui/app.js"></script>
+</body>
+</html>

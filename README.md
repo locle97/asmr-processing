@@ -1,8 +1,8 @@
-# asmr-app · mốc M1–M3: lõi xử lý, waveform, giải thích, API
+# asmr-app · mốc M1–M4: lõi xử lý, waveform, giải thích, API, giao diện web
 
 Thư viện `asmrcore` và lệnh `asmr`: đọc 1 file âm thanh, đo, chọn thông số theo bảng quy tắc,
 chạy 7 bước cố định, đo lại (tối đa 3 vòng), xuất WAV + báo cáo JSON, ảnh waveform trước/sau và
-3 câu giải thích tiếng Việt do Claude viết. Từ M3 có API FastAPI chạy job nền (`asmr serve`). Chưa có giao diện web, video.
+3 câu giải thích tiếng Việt do Claude viết. Từ M3 có API FastAPI chạy job nền (`asmr serve`), từ M4 có giao diện web ở cùng địa chỉ. Chưa xử lý video.
 
 ## Cài và chạy
 
@@ -14,7 +14,7 @@ uv venv && uv pip install -e '.[dev]'
 .venv/bin/asmr process clip.wav --preset soft         # Êm hơn (−3 LU); loud = To hơn (+3 LU)
 .venv/bin/asmr process clip.wav --loudness -2 --denoise 8 --floor 6   # 3 thanh trượt
 .venv/bin/asmr process clip.wav --no-llm        # không gọi Claude, dùng câu giải thích mẫu
-.venv/bin/asmr serve                                  # API ở http://127.0.0.1:8000 (docs: /docs)
+.venv/bin/asmr serve                                  # giao diện + API ở http://127.0.0.1:8000 (docs: /docs)
 .venv/bin/python -m pytest -q
 ```
 
@@ -49,6 +49,8 @@ Mã thoát: 0 = đạt đủ chỉ số, 1 = có chỉ số chưa đạt (vẫn 
 | `asmrserver/store.py` | Thư mục job, đọc/ghi `job.json` nguyên tử, có khoá |
 | `asmrserver/worker.py` | Chạy 1 lần render, báo tiến độ, cache bước 1–2, bản nghe thử FLAC |
 | `asmrserver/runner.py` | `ThreadRunner`, `RqRunner` |
+| `asmrserver/web/` | Giao diện web (HTML/CSS/JS thuần, không cần build), phục vụ ở `/` |
+| `tests/e2e/ui.cjs` | Test giao diện bằng Playwright, `tests/test_web.py` tự dựng server và gọi |
 | `tests/synth.py` | Sinh file thử giống video tô màu (xì nền, nét bút, click) với N, A, C đặt trước |
 
 ## API (M3)
@@ -87,6 +89,34 @@ Lỗi luôn có dạng `{"error": {"code", "message"}}`, lời nhắn tiếng Vi
   `ASMR_ALLOW_LOCAL_PATHS=0` để tắt tạo job bằng đường dẫn (nên tắt khi chạy trên server).
 - Thư mục job: `<id>/{input.<ext>, job.json, renders/<rid>/{<tên>_asmr.wav, .json, .png, _peaks.json, orig.flac, proc.flac}}`.
   Job tạo bằng đường dẫn không copy file gốc.
+
+## Giao diện web (M4)
+
+Chạy `asmr serve` rồi mở http://127.0.0.1:8000. Một trang, hiện dần theo 3 thao tác:
+
+1. **Thả file** (hoặc bấm để chọn). Trình duyệt kiểm tra ngay đuôi file, 500 MB và độ dài 5 giây–10 phút
+   (đọc độ dài bằng `<audio>`, đọc không được thì để server kiểm tra), nên file sai không phải chờ upload.
+   Có thanh tiến độ upload.
+2. **Phân tích và xử lý:** 3 con số (âm nền, tiếng tô bút, click) hiện ngay khi đo xong, cảnh báo dạng thẻ vàng,
+   chọn kiểu xử lý (ASMR tô màu, Êm hơn, To hơn), thanh tiến độ theo từng bước qua SSE.
+3. **Nghe thử và tải về:**
+   - Trình phát A/B: 2 thẻ `<audio>` chạy song song qua Web Audio, chuyển bản bằng crossfade 20 ms, cùng vị trí;
+     lệch quá 20 ms thì đồng bộ lại (kiểm tra mỗi 500 ms). Phím Space phát/dừng, A và B để chuyển. Không giải mã
+     cả file vào bộ nhớ, nên file 10 phút vẫn nhẹ. Không có Web Audio thì chuyển bằng `muted`.
+   - Waveform trước/sau cùng thang, vạch −6 dB, bấm vào để tua.
+   - Bảng trước/sau/mục tiêu có dấu đạt/chưa đạt, lời giải thích.
+   - 3 thanh trượt (Độ to −6…+3 LU, Giảm ồn 0…12 dB, Âm nền 0…12 dB). Chưa chạm thì hiện "tự động" kèm giá trị
+     quy tắc đã chọn. Thả tay mới gửi render (chờ 400 ms), vị trí nghe và trạng thái phát được giữ.
+     Thông số đã render rồi thì lấy lại kết quả cũ ngay.
+   - Tải WAV, báo cáo JSON, ảnh waveform.
+
+Khác trang thiết kế: waveform vẽ bằng canvas từ peaks của server thay vì wavesurfer.js, và không dùng Vite/TS.
+Lý do: app chạy trên máy cá nhân, không build, không tải thư viện từ mạng; phần cần của wavesurfer chỉ là vẽ peaks
+và tua, khoảng 60 dòng. Phím Tab không bị chiếm để chuyển A/B (giữ Tab cho điều hướng bàn phím).
+
+Test: `pytest tests/test_web.py` kiểm tra trang, file tĩnh, Range (Safari cần 206 để phát `<audio>`), và nếu có
+`node` + `playwright` (`npm i -g playwright`) thì chạy cả 3 thao tác trên Chromium và WebKit thật. Thiếu trình duyệt
+nào thì test đó bị bỏ qua (skip), không báo đạt.
 
 ## Đã chốt khi code (khác hoặc thêm so với spec)
 
@@ -135,4 +165,7 @@ Cùng file chạy 2 lần cho ra giống nhau từng mẫu; stereo lệch 3 dB g
 - Theo dõi `limiter_active_pct` trong report: trên file tổng hợp limiter bước 4 đang hạ gain
   15–28% thời gian, tức là nó chạm cả tiếng bút chứ không chỉ click.
 - Chạy thử giải thích với API key thật (trong môi trường build chưa có key, mới test bằng client giả).
-- M4: web UI (thả file, A/B, thanh trượt, tải về) gọi API ở trên. M5: video.
+- Thử giao diện trên Safari thật (macOS và iPhone): môi trường build chỉ có Chromium.
+- Thanh "Độ to" kéo xuống có thể không đổi gì: khi gain bù đã về 0 (giới hạn 0–10 dB) thì LUFS không hạ thêm được.
+  Thấy trên file tổng hợp 12 s: mục tiêu −27 vẫn ra −22.4 LUFS. Cần sửa ở lõi (cho gain bước 3 giảm theo), chưa làm ở M4.
+- M5: video.

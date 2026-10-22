@@ -1,5 +1,6 @@
 """FastAPI: tạo job, theo dõi tiến độ (SSE), render lại với preset/thanh trượt, tải kết quả.
 
+    GET  /                              giao diện web (asmrserver/web), file tĩnh ở /ui/
     POST /jobs                          upload multipart (trường `file`) hoặc JSON {"path": ...} khi chạy local
     GET  /jobs/{id}                     trạng thái, bước, %, cảnh báo, số đo
     GET  /jobs/{id}/events              SSE: gửi trạng thái mỗi khi job.json đổi, đóng khi render xong/lỗi
@@ -27,6 +28,7 @@ from typing import Literal
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.datastructures import UploadFile
 
@@ -35,6 +37,7 @@ from asmrcore import PIPELINE_VERSION, audio_io
 from . import runner as runners
 from .store import ACTIVE, TERMINAL, JobStore, NotFound
 
+WEB_DIR = os.path.join(os.path.dirname(__file__), "web")
 SSE_POLL_S = 0.25
 SSE_HEARTBEAT_S = 15.0
 
@@ -140,6 +143,13 @@ def create_app(data_dir: str | None = None, runner: runners.JobRunner | None = N
         return n
 
     # ---------------------------------------------------------------- routes
+    app.mount("/ui", StaticFiles(directory=WEB_DIR), name="ui")
+
+    @app.get("/", include_in_schema=False)
+    def index():
+        return FileResponse(os.path.join(WEB_DIR, "index.html"), media_type="text/html",
+                            headers={"Cache-Control": "no-cache"})
+
     @app.get("/health")
     def health():
         return {"ok": True, "pipeline_version": PIPELINE_VERSION}
