@@ -7,7 +7,6 @@ khi không gọi được API, dùng câu mẫu dựng sẵn từ chính các s�
 
 from __future__ import annotations
 
-import itertools
 import json
 import os
 import re
@@ -71,6 +70,20 @@ def sentences(text: str) -> list[str]:
     return [p for p in parts if p.strip()]
 
 
+def _pairs(fx: dict) -> list[tuple[float, float]]:
+    """Các cặp số mà hiệu của chúng có nghĩa: trước/sau của cùng chỉ số, số đo so với mục tiêu,
+    tiếng bút so với âm nền. Không lấy hiệu của mọi cặp, vì như vậy gần như số nào cũng lọt."""
+    nen, but, click, lufs = fx["am_nen_dB"], fx["tieng_to_but_dB"], fx["click_dinh_dBFS"], fx["do_to_LUFS"]
+    after_but = but["sau_p95_p99"]
+    pairs = [(nen["truoc"], nen["sau"]), (click["truoc"], click["sau"]), (click["truoc"], click["tran"]),
+             (lufs["truoc"], lufs["sau"]), (but["truoc"], nen["truoc"])]
+    pairs += [(but["truoc"], a) for a in after_but] + [(a, nen["sau"]) for a in after_but]
+    pairs += [(lufs["truoc"], t) for t in lufs["muc_tieu"]]
+    pairs += [(lufs["truoc"], m) for m in fx["goi_y_muc_meter_khi_thu_dB"]]
+    pairs += [(but["truoc"], m) for m in fx["goi_y_muc_meter_khi_thu_dB"]]
+    return [(a, b) for a, b in pairs if a is not None and b is not None]
+
+
 def check(text: str, fx: dict) -> list[str]:
     """Trả danh sách lỗi; rỗng nghĩa là câu trả lời dùng được."""
     errs = []
@@ -78,14 +91,13 @@ def check(text: str, fx: dict) -> list[str]:
         errs.append("rỗng")
     if len(sentences(text)) > MAX_SENTENCES:
         errs.append(f"dài {len(sentences(text))} câu")
-    vals = _numbers(fx)
-    known = {abs(v) for v in vals}
-    diffs = {abs(a - b) for a, b in itertools.combinations(vals, 2)}
+    known = {abs(v) for v in _numbers(fx)}
+    diffs = {abs(a - b) for a, b in _pairs(fx)}
     for n in numbers_in(text):
         a = abs(n)
-        ok = (any(abs(a - k) <= 0.15 for k in known)                      # đúng số, làm tròn 1 chữ số
-              or any(abs(a - round(k)) < 1e-9 for k in known)               # làm tròn tới số nguyên
-              or any(abs(a - d) <= 1.0 for d in diffs))                     # hiệu 2 số, nói "khoảng"
+        tol = 0.5 if a == round(a) else 0.06  # số nguyên: làm tròn; số lẻ: đúng tới 1 chữ số
+        ok = (any(abs(a - k) <= tol for k in known)
+              or any(abs(a - d) <= max(tol, 1.0) for d in diffs))  # hiệu 2 số, thường nói "khoảng"
         if not ok:
             errs.append(f"số {n:g} không có trong báo cáo")
     return errs

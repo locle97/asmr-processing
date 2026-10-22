@@ -30,7 +30,7 @@ def peaks(x: np.ndarray, sr: int, buckets: int = 4000) -> dict:
     n = len(x)
     buckets = max(1, min(buckets, n))
     edges = np.linspace(0, n, buckets + 1).astype(np.int64)
-    chans = [np.round(np.maximum.reduceat(np.abs(x[:, c]), edges[:-1]).clip(0, 1), 4).tolist()
+    chans = [np.round(np.maximum.reduceat(np.abs(x[:, c]), edges[:-1]).astype(np.float64).clip(0, 1), 4).tolist()
              for c in range(x.shape[1])]
     return {"duration": round(n / sr, 3), "length": buckets, "channels": chans}
 
