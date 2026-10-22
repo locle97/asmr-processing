@@ -1,0 +1,27 @@
+[project]
+name = "asmr-app"
+version = "0.1.0"
+description = "Tự xử lý âm thanh ASMR tô màu: đo, chọn thông số theo quy tắc, chạy pipeline 7 bước"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=2.0",
+  "scipy>=1.13",
+  "numba>=0.60",
+  "soundfile>=0.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pyloudnorm>=0.1.1"]  # pyloudnorm chỉ để đối chiếu LUFS trong test
+
+[project.scripts]
+asmr = "asmrcore.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["asmrcore"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
