@@ -103,8 +103,25 @@ def solve_makeup(x3, sr, p: rules.Params, N_post, gain_db, ov, target, max_iter=
     return y, active
 
 
-def process(x: np.ndarray, sr: int, preset: str = "default", ov: rules.Overrides | None = None,
-            progress: Progress | None = None, max_rounds: int = 3) -> Result:
+@dataclass
+class Prepared:
+    """Kết quả bước 1–2 và các số đo đi kèm. Không phụ thuộc preset, thanh "Độ to" hay "Âm nền",
+    nên khi chỉ đổi hai thanh đó có thể dùng lại để render lại nhanh (chỉ chạy bước 3–7)."""
+    sr: int
+    x2: np.ndarray
+    warnings: list[str]
+    pre: Analysis
+    metrics_before: Metrics
+    nr_db: float
+    N_post: float
+    A_post: float
+
+
+def prepare(x: np.ndarray, sr: int, ov: rules.Overrides | None = None,
+            progress: Progress | None = None,
+            on_analysis: Callable[[Analysis, list[str]], None] | None = None) -> Prepared:
+    """Bước 1–2: lọc trầm, đo, giảm ồn. Chỉ thanh "Giảm ồn" (ov.denoise) ảnh hưởng tới kết quả.
+    on_analysis được gọi ngay khi có số đo, trước bước giảm ồn (để giao diện hiện 3 con số sớm)."""
     ov = ov or rules.Overrides()
     say = progress or (lambda step, frac: None)
     warnings: list[str] = []
@@ -122,16 +139,35 @@ def process(x: np.ndarray, sr: int, preset: str = "default", ov: rules.Overrides
         warnings.append("TOO_QUIET")
     if pre.S_db < 12.0:
         warnings.append("LOW_SNR")
+    if on_analysis:
+        on_analysis(pre, list(warnings))
 
-    p = rules.Params()
     nr_db = 0.0 if pre.Q is None else (rules.denoise_db(pre.S_db) if ov.denoise is None else rules.clamp(ov.denoise, 0, 12))
     say("denoise", 0.15)
     x2 = dsp.denoise(x1, sr, pre.Q, nr_db) if nr_db > 0 else x1
-    p.denoise = {"db": nr_db, "noise_clip": list(pre.Q) if pre.Q else None, "method": "spectral_gating_stationary",
-                 "n_std": 1.5, "shared_stereo_mask": True}
 
     f2 = frame_rms_db(x2, sr)
-    N_post, A_post = float(np.percentile(f2, 10)), float(np.percentile(f2, 99))
+    return Prepared(sr, x2, warnings, pre, metrics_before, nr_db,
+                    float(np.percentile(f2, 10)), float(np.percentile(f2, 99)))
+
+
+def process(x: np.ndarray, sr: int, preset: str = "default", ov: rules.Overrides | None = None,
+            progress: Progress | None = None, max_rounds: int = 3) -> Result:
+    ov = ov or rules.Overrides()
+    return finish(prepare(x, sr, ov, progress), preset, ov, progress, max_rounds)
+
+
+def finish(prep: Prepared, preset: str = "default", ov: rules.Overrides | None = None,
+           progress: Progress | None = None, max_rounds: int = 3) -> Result:
+    """Bước 3–7 và vòng kiểm tra. `prep` phải được tạo với cùng ov.denoise."""
+    ov = ov or rules.Overrides()
+    say = progress or (lambda step, frac: None)
+    sr, pre, x2, N_post, A_post = prep.sr, prep.pre, prep.x2, prep.N_post, prep.A_post
+    warnings = list(prep.warnings)
+
+    p = rules.Params()
+    p.denoise = {"db": prep.nr_db, "noise_clip": list(pre.Q) if pre.Q else None, "method": "spectral_gating_stationary",
+                 "n_std": 1.5, "shared_stereo_mask": True}
     _, gain_db = rules.derive_stage_1_3(pre.S_db, pre.Q, A_post, ov)
     p.gain = {"db": gain_db}
     say("gain", 0.45)
@@ -171,6 +207,6 @@ def process(x: np.ndarray, sr: int, preset: str = "default", ov: rules.Overrides
     return Result(
         audio=y, sr=sr, warnings=warnings, analysis_pre=pre,
         analysis_post_nr={"N_db": N_post, "A_db": A_post},
-        params=pr, metrics_before=metrics_before, metrics_after=m, checks=ch,
+        params=pr, metrics_before=prep.metrics_before, metrics_after=m, checks=ch,
         rounds=rounds, chosen_round=rd.round, limiter_active_pct=active,
     )
