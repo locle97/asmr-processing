@@ -1,28 +1,19 @@
-"""asmr process <file> [--preset default|soft|loud] [--out DIR] [--bits float32|24] [--no-llm]"""
+"""asmr process <file> [--preset default|soft|loud] [--out DIR] [--bits float32|24] [--no-llm]
+asmr serve [--host 127.0.0.1] [--port 8000] [--data DIR]"""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
 import os
 import sys
 import time
 
-from . import audio_io, explain, report, waveform
+from . import audio_io, outputs
 from .pipeline import process
 from .rules import Overrides
 
 LABEL = {"noise": "Âm nền", "action_p95": "Tiếng bút p95", "action_p99": "Tiếng bút p99",
          "peak": "Đỉnh mẫu", "tp": "True peak", "lufs": "Độ to (LUFS)"}
-
-
-def _sha256(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for b in iter(lambda: f.read(1 << 20), b""):
-            h.update(b)
-    return h.hexdigest()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -37,7 +28,13 @@ def main(argv: list[str] | None = None) -> int:
     pp.add_argument("--denoise", type=float, default=None, help="Mức giảm ồn 0..12 dB")
     pp.add_argument("--floor", type=float, default=None, help="Mức hạ nền tối đa 0..12 dB")
     pp.add_argument("--no-llm", action="store_true", help="Không gọi Claude, dùng câu giải thích mẫu")
+    sp = sub.add_parser("serve", help="Chạy API (FastAPI) ở localhost")
+    sp.add_argument("--host", default="127.0.0.1")
+    sp.add_argument("--port", type=int, default=8000)
+    sp.add_argument("--data", default=None, help="Thư mục lưu job (mặc định ~/.asmr/jobs hoặc $ASMR_DATA_DIR)")
     a = ap.parse_args(argv)
+    if a.cmd == "serve":
+        return serve(a.host, a.port, a.data)
 
     try:
         info = audio_io.probe(a.input)
@@ -53,23 +50,9 @@ def main(argv: list[str] | None = None) -> int:
     res = process(x, info.sr, a.preset, Overrides(a.loudness, a.denoise, a.floor),
                   progress=lambda s, f: print(f"  [{f * 100:3.0f}%] {s}", file=sys.stderr))
     out_dir = a.out or os.path.dirname(os.path.abspath(a.input))
-    os.makedirs(out_dir, exist_ok=True)
-    stem = os.path.splitext(os.path.basename(a.input))[0]
-    bits = a.bits or ("float32" if info.subtype == "FLOAT" else "24")
-    wav = os.path.join(out_dir, f"{stem}_asmr.wav")
-    audio_io.write_wav(wav, res.audio, info.sr, bits)
-    rep = report.build(res, os.path.basename(a.input), _sha256(a.input), a.preset)
-    png = os.path.join(out_dir, f"{stem}_asmr.png")
-    waveform.render_png(x, res.audio, info.sr, png, title=os.path.basename(a.input))
-    peaks = os.path.join(out_dir, f"{stem}_asmr_peaks.json")
-    with open(peaks, "w", encoding="utf-8") as f:
-        json.dump({"before": waveform.peaks(x, info.sr), "after": waveform.peaks(res.audio, info.sr)}, f)
-    rep["output"] = {"wav": os.path.basename(wav), "bits": bits, "waveform_png": os.path.basename(png),
-                     "peaks_json": os.path.basename(peaks)}
-    rep["explanation"] = explain.explain(rep, use_llm=not a.no_llm)
-    rep["elapsed_s"] = round(time.perf_counter() - t0, 2)
-    with open(os.path.join(out_dir, f"{stem}_asmr.json"), "w", encoding="utf-8") as f:
-        json.dump(rep, f, ensure_ascii=False, indent=2)
+    rep = outputs.write(x, res, info, os.path.basename(a.input), outputs.sha256_file(a.input), a.preset,
+                        out_dir, a.bits, use_llm=not a.no_llm, t0=t0)
+    wav = os.path.join(out_dir, rep["output"]["wav"])
 
     if rep["warnings"]:
         print("Cảnh báo:", ", ".join(rep["warnings"]))
@@ -79,6 +62,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Giải thích ({src}): {rep['explanation']['text']}")
     print(f"Xong trong {rep['elapsed_s']} s → {wav}")
     return 0 if rep["all_pass"] else 1
+
+
+def serve(host: str, port: int, data: str | None) -> int:
+    import uvicorn
+
+    from asmrserver.app import create_app
+
+    uvicorn.run(create_app(data_dir=data), host=host, port=port)
+    return 0
 
 
 if __name__ == "__main__":
